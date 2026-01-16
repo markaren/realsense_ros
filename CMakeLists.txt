@@ -19,6 +19,7 @@ find_package(ament_cmake REQUIRED)
 
 # Add each cpp package as a subdirectory
 add_subdirectory(src/realsense)
+add_subdirectory(src/realsense_utils)
 
 # ---- colcon build target ----
 if (WIN32)

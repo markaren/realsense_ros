@@ -65,7 +65,6 @@ public:
         canvas.animate([&] {
 
             if (!rclcpp::ok()) {
-                instancedMesh_ = nullptr;
                 canvas.close();
             }
 
@@ -104,6 +103,12 @@ public:
 
             renderer.render(scene, camera);
         });
+
+        instancedMesh_ = nullptr;
+
+        if (rclcpp::ok()) {
+            rclcpp::shutdown();
+        }
 
     }
 
@@ -182,5 +187,5 @@ int main(int argc, char **argv) {
     rclcpp::init(argc, argv);
     auto node = std::make_shared<PointsVisualizer>();
     rclcpp::spin(node);
-    rclcpp::shutdown();
+    if (rclcpp::ok()) rclcpp::shutdown();
 }

@@ -32,7 +32,7 @@ add_subdirectory(${threepp_SOURCE_DIR}/examples/external ${CMAKE_CURRENT_BINARY_
 
 add_executable(realsense realsense.cpp)
 target_include_directories(realsense PUBLIC include)
-target_link_libraries(realsense realsense2::realsense2)
+target_link_libraries(realsense realsense2::realsense2 ${OpenCV_LIBS})
 ament_target_dependencies(realsense rclcpp std_msgs sensor_msgs tf2_ros)
 
 add_executable(image_visualizer image_visualizer.cpp)

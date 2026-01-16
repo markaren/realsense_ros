@@ -1,21 +1,27 @@
 #include <rclcpp/rclcpp.hpp>
-#include <rclcpp/executors/single_threaded_executor.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
 #include <threepp/threepp.hpp>
 
 #include <atomic>
+#include <semaphore>
 
 using namespace threepp;
 
 class PointsVisualizer : public rclcpp::Node {
 public:
-    PointsVisualizer() : Node("points_visualizer"), max_instances_(100000) {
+
+
+    PointsVisualizer() : Node("points_visualizer"), max_instances_(80000) {
         pointsSub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
             "camera/points", rclcpp::SensorDataQoS(),
             [this](sensor_msgs::msg::PointCloud2::SharedPtr msg) {
                 parsePointCloud(msg);
             });
+
+        thread_ = std::thread([this] { run(); });
+
+        sem_.acquire(); // wait for renderer to setup
     }
 
     void run() {
@@ -53,11 +59,16 @@ public:
             renderer.setSize(size);
         });
 
-        executor_ = std::make_unique<rclcpp::executors::SingleThreadedExecutor>();
-        executor_->add_node(shared_from_this());
-        spin_thread_ = std::thread([this] { executor_->spin(); });
+        sem_.release();
 
+        Matrix4 m;
         canvas.animate([&] {
+
+            if (!rclcpp::ok()) {
+                instancedMesh_ = nullptr;
+                canvas.close();
+            }
+
             // if there's new data, copy and update instances (must run in GL thread)
             if (new_points_.load(std::memory_order_acquire)) {
                 std::vector<Vector3> positions;
@@ -70,13 +81,12 @@ public:
 
                 const std::size_t n = std::min(positions.size(), max_instances_);
                 // update instance matrices and colors
-                Matrix4 mat;
+
                 for (std::size_t i = 0; i < n; ++i) {
-                    // create translation matrix for point
-                    mat.identity();
-                    mat.setPosition(positions[i]);
-                    mat.scale(Vector3{1, 1, 1} * positions[i].z);
-                    instancedMesh_->setMatrixAt(static_cast<int>(i), mat);
+                    m.identity();
+                    m.setPosition(positions[i]);
+                    m.scale(Vector3{1, 1, 1} * positions[i].z);
+                    instancedMesh_->setMatrixAt(static_cast<int>(i), m);
 
                     if (colors.size() == positions.size()) {
                         instancedMesh_->setColorAt(static_cast<int>(i), colors[i]);
@@ -94,6 +104,7 @@ public:
 
             renderer.render(scene, camera);
         });
+
     }
 
     // Parse PointCloud2 into simple position + color vectors (threaded callback)
@@ -149,22 +160,19 @@ public:
     }
 
     ~PointsVisualizer() override {
-        if (executor_) executor_->cancel();
-        if (spin_thread_.joinable()) {
-            spin_thread_.join();
-        }
+        if (thread_.joinable()) thread_.join();
     }
 
 private:
-    std::unique_ptr<rclcpp::executors::SingleThreadedExecutor> executor_;
-    std::thread spin_thread_;
-
+    std::thread thread_;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pointsSub_;
 
     std::mutex points_mutex_;
     std::vector<Vector3> points_buffer_;
     std::vector<Color> colors_buffer_;
     std::atomic<bool> new_points_{false};
+
+    std::binary_semaphore sem_{0};
 
     std::shared_ptr<InstancedMesh> instancedMesh_;
     std::size_t max_instances_;
@@ -173,6 +181,6 @@ private:
 int main(int argc, char **argv) {
     rclcpp::init(argc, argv);
     auto node = std::make_shared<PointsVisualizer>();
-    node->run();
+    rclcpp::spin(node);
     rclcpp::shutdown();
 }

@@ -1,13 +1,12 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 
 #include <librealsense2/rs.hpp>
 
-// replaced tf2_ros static broadcaster with direct tf2_msgs publish
-#include <tf2_msgs/msg/tf_message.hpp>
-#include <geometry_msgs/msg/transform_stamped.hpp>
+#include <opencv2/opencv.hpp>
 
 #include <chrono>
 
@@ -20,11 +19,19 @@ public:
             "/camera/points", rclcpp::SensorDataQoS()
         );
 
-        color_pub_ = create_publisher<sensor_msgs::msg::Image>(
+        color_pub_ = create_publisher<sensor_msgs::msg::CompressedImage>(
+            "/camera/color/image_jpg", rclcpp::SensorDataQoS()
+        );
+
+        depth_pub_ = create_publisher<sensor_msgs::msg::CompressedImage>(
+            "/camera/depth/image_png", rclcpp::SensorDataQoS()
+        );
+
+        color_raw_pub_ = create_publisher<sensor_msgs::msg::Image>(
             "/camera/color/image_raw", rclcpp::SensorDataQoS()
         );
 
-        depth_pub_ = create_publisher<sensor_msgs::msg::Image>(
+        depth_raw_pub_ = create_publisher<sensor_msgs::msg::Image>(
             "/camera/depth/image_raw", rclcpp::SensorDataQoS()
         );
 
@@ -35,7 +42,7 @@ public:
             rs2::config cfg;
 
             cfg.enable_stream(RS2_STREAM_DEPTH, 320, 240, RS2_FORMAT_Z16, 30);
-            cfg.enable_stream(RS2_STREAM_COLOR, 960, 540, RS2_FORMAT_BGR8, 30);
+            cfg.enable_stream(RS2_STREAM_COLOR, 960, 540, RS2_FORMAT_BGR8, 15);
 
             // Start streaming with custom recommended configuration
             pipeline.start(cfg);
@@ -68,29 +75,58 @@ public:
                 pc.map_to(color);
                 const rs2::points points = pc.calculate(depth);
 
-                publishColorImage(color);
-                publishDepthImage(depth);
-                publishPointCloud(points, color);
+                auto stamp = now();
+                publishColorImage(color, stamp);
+                publishDepthImage(depth, stamp);
+                publishPointCloud(points, color, stamp);
             }
         });
     }
 
-    void publishDepthImage(const rs2::video_frame &depth) const {
-        sensor_msgs::msg::Image img;
-        img.header.stamp = now();
-        img.header.frame_id = "camera_depth_optical_frame";
-        img.height = depth.get_height();
-        img.width = depth.get_width();
-        img.encoding = "16UC1";
-        img.step = img.width * 2;
+    void publishDepthImage(const rs2::video_frame &depth, const rclcpp::Time& stamp) const {
+        cv::Mat mat(depth.get_height(), depth.get_width(), CV_16UC1,
+                    const_cast<void*>(depth.get_data()), depth.get_stride_in_bytes());
+
+        std::vector<uint8_t> buf;
+        cv::imencode(".png", mat, buf);
+
+        sensor_msgs::msg::CompressedImage compressed;
+        compressed.header.stamp = stamp;
+        compressed.header.frame_id = "camera_depth_optical_frame";
+        compressed.format = "png";
+        compressed.data = std::move(buf);
+        depth_pub_->publish(compressed);
+
+
+        sensor_msgs::msg::Image raw;
+        raw.header.stamp = stamp;
+        raw.header.frame_id = "camera_depth_optical_frame";
+        raw.encoding = "16UC1";
+        raw.height = depth.get_height();
+        raw.width = depth.get_width();
+        raw.step = depth.get_stride_in_bytes();
         const auto data_ptr = static_cast<const uint8_t *>(depth.get_data());
-        img.data.assign(data_ptr, data_ptr + img.step * img.height);
-        depth_pub_->publish(img);
+        raw.data.assign(data_ptr, data_ptr + raw.step * raw.height);
+        depth_raw_pub_->publish(raw);
     }
 
-    void publishColorImage(const rs2::video_frame &color) const {
+    void publishColorImage(const rs2::video_frame &color, const rclcpp::Time& stamp) const {
+        cv::Mat mat(color.get_height(), color.get_width(), CV_8UC3,
+                    const_cast<void*>(color.get_data()), color.get_stride_in_bytes());
+        std::vector<uint8_t> buf;
+        std::vector params {cv::IMWRITE_JPEG_QUALITY, 90};
+
+        cv::imencode(".jpg", mat, buf, params);
+
+        sensor_msgs::msg::CompressedImage compressed;
+        compressed.header.stamp = stamp;
+        compressed.header.frame_id = "camera_color_optical_frame";
+        compressed.format = "jpeg";
+        compressed.data = std::move(buf);
+        color_pub_->publish(compressed);
+
         sensor_msgs::msg::Image img;
-        img.header.stamp = now();
+        img.header.stamp = stamp;
         img.header.frame_id = "camera_color_optical_frame";
         img.height = color.get_height();
         img.width = color.get_width();
@@ -98,13 +134,13 @@ public:
         img.step = img.width * 3;
         const auto data_ptr = static_cast<const uint8_t *>(color.get_data());
         img.data.assign(data_ptr, data_ptr + img.step * img.height);
-        color_pub_->publish(img);
+        color_raw_pub_->publish(img);
     }
 
-    void publishPointCloud(const rs2::points &points, const rs2::video_frame &color) const {
+    void publishPointCloud(const rs2::points &points, const rs2::video_frame &color, const rclcpp::Time& stamp) const {
         sensor_msgs::msg::PointCloud2 msg;
-        msg.header.stamp = now();
-        msg.header.frame_id = "camera_depth_optical_frame";
+        msg.header.stamp = stamp;
+        msg.header.frame_id = "map";
 
         msg.height = 1;
         msg.width = points.size();
@@ -167,11 +203,11 @@ public:
 
 private:
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pc_pub_;
-    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr color_pub_;
-    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr depth_pub_;
 
-    rclcpp::TimerBase::SharedPtr timer_;
-
+    rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr color_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr depth_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr color_raw_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr depth_raw_pub_;
 
     rs2::pointcloud pc;
 
@@ -182,62 +218,6 @@ private:
 int main() {
     rclcpp::init(0, nullptr);
     auto node = std::make_shared<RealsenseNode>();
-
-    // // Create and send a static transform from "map" -> "camera_link" so RViz shows the frame.
-    // // Publish directly to /tf_static with transient_local QoS so late subscribers (like RViz) receive it.
-    // auto tf_pub = node->create_publisher<tf2_msgs::msg::TFMessage>(
-    //     "/tf_static",
-    //     rclcpp::QoS(rclcpp::KeepLast(1)).transient_local()
-    // );
-    //
-    // // map -> camera_link
-    // geometry_msgs::msg::TransformStamped t_map_cam;
-    // // t_map_cam.header.stamp = node->now();
-    // t_map_cam.header.frame_id = "map";
-    // t_map_cam.child_frame_id = "camera_link";
-    // t_map_cam.transform.translation.x = 0.0;
-    // t_map_cam.transform.translation.y = 0.0;
-    // t_map_cam.transform.translation.z = 0.0;
-    // t_map_cam.transform.rotation.x = 0.0;
-    // t_map_cam.transform.rotation.y = 0.0;
-    // t_map_cam.transform.rotation.z = 0.0;
-    // t_map_cam.transform.rotation.w = 1.0;
-    //
-    // // camera_link -> camera_color_optical_frame
-    // geometry_msgs::msg::TransformStamped t_cam_color;
-    // // t_cam_color.header.stamp = node->now();
-    // t_cam_color.header.frame_id = "camera_link";
-    // t_cam_color.child_frame_id = "camera_color_optical_frame";
-    // t_cam_color.transform.translation.x = 0.0;
-    // t_cam_color.transform.translation.y = 0.0;
-    // t_cam_color.transform.rotation.x = -0.5;
-    // t_cam_color.transform.rotation.y = 0.5;
-    // t_cam_color.transform.rotation.z = -0.5;
-    // t_cam_color.transform.rotation.w = 0.5;
-    //
-    // // camera_link -> camera_depth_optical_frame
-    // geometry_msgs::msg::TransformStamped t_cam_depth;
-    // // t_cam_depth.header.stamp = node->now();
-    // t_cam_depth.header.frame_id = "camera_link";
-    // t_cam_depth.child_frame_id = "camera_depth_optical_frame";
-    // t_cam_depth.transform.translation.x = 0.0;
-    // t_cam_depth.transform.translation.y = 0.0;
-    // t_cam_depth.transform.translation.z = 0.0;
-    // t_cam_depth.transform.rotation = t_cam_color.transform.rotation;
-    //
-    //
-    // t_map_cam.header.stamp = rclcpp::Time(0);
-    // t_cam_color.header.stamp = rclcpp::Time(0);
-    // t_cam_depth.header.stamp = rclcpp::Time(0);
-    //
-    // tf2_msgs::msg::TFMessage tf_msg;
-    // tf_msg.transforms.push_back(t_map_cam);
-    // tf_msg.transforms.push_back(t_cam_color);
-    // tf_msg.transforms.push_back(t_cam_depth);
-    //
-    // std::this_thread::sleep_for(500ms);
-    // tf_pub->publish(tf_msg);
-
     rclcpp::spin(node);
     rclcpp::shutdown();
 }

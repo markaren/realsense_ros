@@ -1,6 +1,8 @@
 import os
 from launch import LaunchDescription
 from launch_ros.actions import Node
+from launch.actions import RegisterEventHandler
+from launch.event_handlers import OnProcessStart
 from ament_index_python import get_package_share_directory
 
 
@@ -33,6 +35,13 @@ def generate_launch_description():
         parameters=[{"use_sim_time": False}]
     )
 
+    start_vis_after_camera = RegisterEventHandler(
+        event_handler=OnProcessStart(
+            target_action=camera_node,
+            on_start=[image_vis_node, points_vis_node]
+        )
+    )
+
     rviz_node = Node(
         package='rviz2',
         executable='rviz2',
@@ -44,7 +53,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         # rviz_node,
+
+        start_vis_after_camera,
         camera_node,
-        image_vis_node,
-        points_vis_node
     ])

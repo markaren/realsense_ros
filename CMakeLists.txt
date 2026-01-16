@@ -15,15 +15,10 @@ if (WIN32)
     endif ()
 endif ()
 
-set(BOOST_ROOT "C:/dev/libs/boost_1_86_0")
-find_package(Boost REQUIRED)
-
 find_package(ament_cmake REQUIRED)
 
 # Add each cpp package as a subdirectory
 add_subdirectory(src/realsense)
-#add_subdirectory(src/realsense2_camera)
-#add_subdirectory(src/realsense2_camera_msgs)
 
 # ---- colcon build target ----
 if (WIN32)

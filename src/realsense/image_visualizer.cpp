@@ -1,5 +1,5 @@
 #include <rclcpp/rclcpp.hpp>
-#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
 
 #include <opencv2/opencv.hpp>
 
@@ -8,16 +8,16 @@ public:
     ImageVisualizer()
         : Node("image_visualizer")
     {
-        auto qos = rclcpp::SensorDataQoS();
+        const auto qos = rclcpp::SensorDataQoS();
 
-        color_sub_ = create_subscription<sensor_msgs::msg::Image>(
-            "/camera/color/image_raw",
+        color_sub_ = create_subscription<sensor_msgs::msg::CompressedImage>(
+            "/camera/color/image_jpg",
             qos,
             std::bind(&ImageVisualizer::colorCallback, this, std::placeholders::_1)
         );
 
-        depth_sub_ = create_subscription<sensor_msgs::msg::Image>(
-            "/camera/depth/image_raw",
+        depth_sub_ = create_subscription<sensor_msgs::msg::CompressedImage>(
+            "/camera/depth/image_png",
             qos,
             std::bind(&ImageVisualizer::depthCallback, this, std::placeholders::_1)
         );
@@ -35,34 +35,16 @@ public:
     }
 
 private:
-    void colorCallback(const sensor_msgs::msg::Image::ConstSharedPtr msg)
+    void colorCallback(const sensor_msgs::msg::CompressedImage::ConstSharedPtr msg)
     {
-        if (msg->encoding != "bgr8") return;
-
-        std::lock_guard<std::mutex> lock(mutex_);
-
-        color_img_ = cv::Mat(
-            msg->height,
-            msg->width,
-            CV_8UC3,
-            const_cast<uint8_t*>(msg->data.data()),
-            msg->step
-        ).clone();  // clone = safe
+        std::lock_guard lock(mutex_);
+        cv::imdecode(cv::Mat(msg->data), cv::IMREAD_COLOR).copyTo(color_img_);
     }
 
-    void depthCallback(const sensor_msgs::msg::Image::ConstSharedPtr msg)
+    void depthCallback(const sensor_msgs::msg::CompressedImage::ConstSharedPtr msg)
     {
-        if (msg->encoding != "16UC1" && msg->encoding != "mono16") return;
-
-        std::lock_guard<std::mutex> lock(mutex_);
-
-        depth_img_ = cv::Mat(
-            msg->height,
-            msg->width,
-            CV_16UC1,
-            const_cast<uint8_t*>(msg->data.data()),
-            msg->step
-        ).clone();
+        std::lock_guard lock(mutex_);
+        cv::imdecode(cv::Mat(msg->data), cv::IMREAD_UNCHANGED).copyTo(depth_img_);
     }
 
     void guiLoop()
@@ -74,11 +56,11 @@ private:
             cv::Mat color, depth;
 
             {
-                std::lock_guard<std::mutex> lock(mutex_);
+                std::lock_guard lock(mutex_);
                 if (!color_img_.empty())
-                    color = color_img_;
+                    color = color_img_.clone();
                 if (!depth_img_.empty())
-                    depth = depth_img_;
+                    depth = depth_img_.clone();
             }
 
             if (!color.empty()) {
@@ -91,13 +73,15 @@ private:
                 cv::imshow("Depth", depth_vis);
             }
 
-            cv::waitKey(1);
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            const auto key = cv::waitKey(1);
+            if (key == 'q' || key == 27) { // 'q' or ESC
+                gui_running_ = false;
+            }
         }
     }
 
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr color_sub_;
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr color_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr depth_sub_;
 
     std::mutex mutex_;
     cv::Mat color_img_;
@@ -112,11 +96,7 @@ int main(int argc, char **argv)
     rclcpp::init(argc, argv);
 
     auto node = std::make_shared<ImageVisualizer>();
-
-    rclcpp::executors::MultiThreadedExecutor exec;
-    exec.add_node(node);
-    exec.spin();
+    rclcpp::spin(node);
 
     rclcpp::shutdown();
-    return 0;
 }

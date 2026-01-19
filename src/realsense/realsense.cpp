@@ -3,6 +3,7 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
 
 #include <librealsense2/rs.hpp>
 
@@ -15,7 +16,7 @@ using namespace std::chrono_literals;
 class RealsenseNode : public rclcpp::Node {
 public:
     RealsenseNode()
-        : Node("realsense_node", rclcpp::NodeOptions().use_intra_process_comms(true)) {
+        : Node("realsense_node") {
         pc_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
             "/camera/points", rclcpp::SensorDataQoS()
         );
@@ -34,6 +35,10 @@ public:
 
         depth_raw_pub_ = create_publisher<sensor_msgs::msg::Image>(
             "/camera/depth/image_raw", rclcpp::SensorDataQoS()
+        );
+
+        info_pub_ = this->create_publisher<sensor_msgs::msg::CameraInfo>(
+            "camera/color/camera_info", rclcpp::SensorDataQoS()
         );
 
 
@@ -76,9 +81,48 @@ public:
                 pc.map_to(color);
                 const rs2::points points = pc.calculate(depth);
 
+                rs2::align align_to_color(RS2_STREAM_COLOR);
+                rs2::frameset aligned = align_to_color.process(frames);
+
+                rs2::depth_frame aligned_depth = aligned.get_depth_frame();
+
+                rs2_intrinsics intrinsics = color.get_profile().as<rs2::video_stream_profile>().get_intrinsics();
+
                 auto stamp = now();
+
+                auto cam_info = sensor_msgs::msg::CameraInfo();
+                cam_info.header.stamp = stamp;
+                cam_info.header.frame_id = "camera_link";
+
+                cam_info.height = intrinsics.height;
+                cam_info.width = intrinsics.width;
+                cam_info.distortion_model = "plumb_bob";
+                cam_info.k = {615.0, 0.0, 320.0, 0.0, 615.0, 240.0, 0.0, 0.0, 1.0};
+                cam_info.d = {
+                    intrinsics.coeffs[0],
+                    intrinsics.coeffs[1],
+                    intrinsics.coeffs[2],
+                    intrinsics.coeffs[3],
+                    intrinsics.coeffs[4]
+                };
+                cam_info.k = {
+                    intrinsics.fx, 0.0, intrinsics.ppx,
+                    0.0, intrinsics.fy, intrinsics.ppy,
+                    0.0, 0.0, 1.0
+                };
+
+                cam_info.r = {1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0};
+
+                cam_info.p = {
+                    intrinsics.fx, 0.0, intrinsics.ppx, 0.0,
+                    0.0, intrinsics.fy, intrinsics.ppy, 0.0,
+                    0.0, 0.0, 1.0, 0.0
+                };
+
+                info_pub_->publish(cam_info);
+
                 publishColorImage(color, stamp);
-                publishDepthImage(depth, stamp);
+                publishDepthImage(aligned_depth, stamp);
                 publishPointCloud(points, color, stamp);
             }
         });
@@ -209,6 +253,8 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr depth_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr color_raw_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr depth_raw_pub_;
+
+    rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr info_pub_;
 
     rs2::pointcloud pc;
 

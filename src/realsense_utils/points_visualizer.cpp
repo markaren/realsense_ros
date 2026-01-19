@@ -11,7 +11,7 @@ using namespace threepp;
 class PointsVisualizer : public rclcpp::Node {
 public:
     PointsVisualizer()
-        : Node("points_visualizer", rclcpp::NodeOptions().use_intra_process_comms(true))
+        : Node("points_visualizer")
           , max_instances_(80000) {
         pointsSub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
             "camera/points", rclcpp::SensorDataQoS(),

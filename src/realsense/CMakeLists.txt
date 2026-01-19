@@ -3,8 +3,6 @@ project(realsense)
 
 set(CMAKE_CXX_STANDARD 20)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-
 
 find_package(ament_cmake REQUIRED)
 
@@ -14,6 +12,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(OpenCV REQUIRED)
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(Realsense2 REQUIRED)
 
 add_executable(realsense realsense.cpp)
@@ -25,21 +24,6 @@ ament_target_dependencies(realsense rclcpp std_msgs sensor_msgs tf2_ros)
 install(TARGETS
         realsense
         DESTINATION lib/${PROJECT_NAME}
-)
-
-install(FILES
-        cmake/FindRealsense2.cmake
-        DESTINATION share/${PROJECT_NAME}/cmake
-)
-
-install(
-        DIRECTORY launch
-        DESTINATION share/${PROJECT_NAME}/
-)
-
-install(
-        DIRECTORY config
-        DESTINATION share/${PROJECT_NAME}/
 )
 
 ament_package()

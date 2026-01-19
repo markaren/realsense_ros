@@ -20,19 +20,20 @@ find_package(ament_cmake REQUIRED)
 # Add each cpp package as a subdirectory
 add_subdirectory(src/realsense)
 add_subdirectory(src/realsense_utils)
+#add_subdirectory(src/realsense-ros/realsense2_camera)
 
 # ---- colcon build target ----
 if (WIN32)
     # On Windows, use --merge-install according to docs
     add_custom_target(colcon_build
-            COMMAND colcon build --base-paths src --merge-install --event-handlers console_direct+
+            COMMAND colcon build --base-paths src/realsense src/realsense_utils --merge-install --event-handlers console_direct+
             WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
             USES_TERMINAL
             COMMENT "Running colcon build"
     )
 else ()
     add_custom_target(colcon_build
-            COMMAND colcon build --base-paths src --event-handlers console_direct+
+            COMMAND colcon build --base-paths src/realsense src/realsense_utils --event-handlers console_direct+
             WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
             USES_TERMINAL
             COMMENT "Running colcon build"

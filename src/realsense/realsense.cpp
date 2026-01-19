@@ -14,7 +14,8 @@ using namespace std::chrono_literals;
 
 class RealsenseNode : public rclcpp::Node {
 public:
-    RealsenseNode() : Node("realsense_node") {
+    RealsenseNode()
+        : Node("realsense_node", rclcpp::NodeOptions().use_intra_process_comms(true)) {
         pc_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
             "/camera/points", rclcpp::SensorDataQoS()
         );
@@ -83,9 +84,9 @@ public:
         });
     }
 
-    void publishDepthImage(const rs2::video_frame &depth, const rclcpp::Time& stamp) const {
+    void publishDepthImage(const rs2::video_frame &depth, const rclcpp::Time &stamp) const {
         cv::Mat mat(depth.get_height(), depth.get_width(), CV_16UC1,
-                    const_cast<void*>(depth.get_data()), depth.get_stride_in_bytes());
+                    const_cast<void *>(depth.get_data()), depth.get_stride_in_bytes());
 
         std::vector<uint8_t> buf;
         cv::imencode(".png", mat, buf);
@@ -110,11 +111,11 @@ public:
         depth_raw_pub_->publish(raw);
     }
 
-    void publishColorImage(const rs2::video_frame &color, const rclcpp::Time& stamp) const {
+    void publishColorImage(const rs2::video_frame &color, const rclcpp::Time &stamp) const {
         cv::Mat mat(color.get_height(), color.get_width(), CV_8UC3,
-                    const_cast<void*>(color.get_data()), color.get_stride_in_bytes());
+                    const_cast<void *>(color.get_data()), color.get_stride_in_bytes());
         std::vector<uint8_t> buf;
-        std::vector params {cv::IMWRITE_JPEG_QUALITY, 90};
+        std::vector params{cv::IMWRITE_JPEG_QUALITY, 90};
 
         cv::imencode(".jpg", mat, buf, params);
 
@@ -137,7 +138,7 @@ public:
         color_raw_pub_->publish(img);
     }
 
-    void publishPointCloud(const rs2::points &points, const rs2::video_frame &color, const rclcpp::Time& stamp) const {
+    void publishPointCloud(const rs2::points &points, const rs2::video_frame &color, const rclcpp::Time &stamp) const {
         sensor_msgs::msg::PointCloud2 msg;
         msg.header.stamp = stamp;
         msg.header.frame_id = "map";

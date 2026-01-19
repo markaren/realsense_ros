@@ -10,9 +10,9 @@ using namespace threepp;
 
 class PointsVisualizer : public rclcpp::Node {
 public:
-
-
-    PointsVisualizer() : Node("points_visualizer"), max_instances_(80000) {
+    PointsVisualizer()
+        : Node("points_visualizer", rclcpp::NodeOptions().use_intra_process_comms(true))
+          , max_instances_(80000) {
         pointsSub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
             "camera/points", rclcpp::SensorDataQoS(),
             [this](sensor_msgs::msg::PointCloud2::SharedPtr msg) {
@@ -25,7 +25,6 @@ public:
     }
 
     void run() {
-
         Canvas canvas("L515 point cloud visualizer");
         GLRenderer renderer(canvas.size());
 
@@ -63,7 +62,6 @@ public:
 
         Matrix4 m;
         canvas.animate([&] {
-
             if (!rclcpp::ok()) {
                 canvas.close();
             }
@@ -109,7 +107,6 @@ public:
         if (rclcpp::ok()) {
             rclcpp::shutdown();
         }
-
     }
 
     // Parse PointCloud2 into simple position + color vectors (threaded callback)
